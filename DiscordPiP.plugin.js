@@ -1,5 +1,15 @@
-//META{"name":"DiscordPiP","source":"https://github.com/Azyzraissi/discord-true-pip-desktop","version":"1.0","description":"Enables Picture-in-Picture mode for videos on Discord web pages when the Discord app is out of focus.","author":"Aziz Raissi Darouez","icon":"URL_TO_YOUR_ICON_IMAGE"}*//
-var DiscordPiP = class DiscordPiP {
+/**
+ * @name True Picture-in-Picture
+ * @description Enables true Picture-in-Picture mode for videos when the Discord app is out of focus.
+ * @version 1.1
+ * @autor Aziz Raissi Darouez
+ * @authorId 285876865594425345
+ * @authorLink https://www.threads.net/@azyz.raw
+ * @website https://github.com/Azyzraissi
+ * @source https://github.com/Azyzraissi/discord-true-pip-desktop
+ */
+
+class DiscordPiP {
     start() {
         this.enablePictureInPicture();
     }
@@ -9,37 +19,37 @@ var DiscordPiP = class DiscordPiP {
     }
 
     enablePictureInPicture() {
-        const videoElements = document.getElementsByTagName('video');
-        let pipActive = false; // Track if PiP mode is currently active
-
         if (!document.pictureInPictureEnabled) {
             console.error('Picture-in-Picture is not supported in this browser.');
             return;
         }
 
+        let pipActive = false;
+
         const enterPiP = async (video) => {
-            if (pipActive) return;
-            try {
-                await video.requestPictureInPicture();
-                pipActive = true;
-            } catch (error) {
-                if (error.name === 'NotAllowedError' || error.name === 'NotSupportedError') {
+            if (!pipActive && !video.paused && !video.ended) {
+                try {
+                    await video.requestPictureInPicture();
+                    pipActive = true;
+                } catch (error) {
                     console.error('Error entering Picture-in-Picture mode:', error);
                 }
             }
         };
 
         const exitPiP = async () => {
-            if (!pipActive) return;
-            try {
-                await document.exitPictureInPicture();
-                pipActive = false;
-            } catch (error) {
-                console.error('Error exiting Picture-in-Picture mode:', error);
+            if (pipActive) {
+                try {
+                    await document.exitPictureInPicture();
+                    pipActive = false;
+                } catch (error) {
+                    console.error('Error exiting Picture-in-Picture mode:', error);
+                }
             }
         };
 
         const checkAndEnterPiP = () => {
+            const videoElements = document.getElementsByTagName('video');
             Array.from(videoElements).forEach(video => {
                 if (!pipActive && !video.paused && !video.ended) {
                     enterPiP(video);
@@ -47,41 +57,60 @@ var DiscordPiP = class DiscordPiP {
             });
         };
 
-        const handleUserAction = () => {
-            exitPiP();
+        const monitorVideos = () => {
+            const videoElements = document.getElementsByTagName('video');
+            Array.from(videoElements).forEach(video => {
+                video.addEventListener('pause', exitPiP);
+                video.addEventListener('ended', exitPiP);
+                video.addEventListener('enterpictureinpicture', (event) => {
+                    if (pipActive && event.target !== document.pictureInPictureElement) {
+                        exitPiP();
+                    }
+                });
+                video.addEventListener('leavepictureinpicture', () => {
+                    pipActive = false;
+                });
+                video.addEventListener('emptied', exitPiP);
+                video.addEventListener('abort', exitPiP);
+                video.addEventListener('error', exitPiP);
+            });
         };
 
-        // Event listener for focus change
-        window.addEventListener('blur', checkAndEnterPiP);
-
-        // Event listener for exiting PiP mode using the "Back to tab" button
-        document.addEventListener('leavepictureinpicture', () => {
-            pipActive = false;
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'hidden') {
+                checkAndEnterPiP();
+            }
         });
 
-        // Event listeners for user actions to exit PiP
-        document.addEventListener('click', handleUserAction);
-        document.addEventListener('input', handleUserAction);
-        document.addEventListener('keydown', handleUserAction);
+        window.addEventListener('blur', checkAndEnterPiP);
+        window.addEventListener('focus', () => {
+            // Do not exit PiP on focus
+        });
 
-        // Initial check
-        if (!document.hasFocus()) {
-            checkAndEnterPiP();
-        }
+        const observer = new MutationObserver(() => {
+            monitorVideos();
+        });
 
-        // Store elements and handlers for cleanup
+        observer.observe(document.body, { childList: true, subtree: true });
+
+        monitorVideos();
+
+        this.observer = observer;
+        this.exitPiP = exitPiP;
         this.checkAndEnterPiP = checkAndEnterPiP;
-        this.leavePiPHandler = handleUserAction;
-        this.handleUserAction = handleUserAction;
     }
 
     cleanup() {
+        if (this.observer) {
+            this.observer.disconnect();
+        }
         window.removeEventListener('blur', this.checkAndEnterPiP);
-        document.removeEventListener('leavepictureinpicture', this.leavePiPHandler);
-        document.removeEventListener('click', this.handleUserAction);
-        document.removeEventListener('input', this.handleUserAction);
-        document.removeEventListener('keydown', this.handleUserAction);
+        document.removeEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'hidden') {
+                this.checkAndEnterPiP();
+            }
+        });
     }
-};
+}
 
 module.exports = DiscordPiP;
